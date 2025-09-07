@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telling the Time Quiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f7e9e9;
+        }
+        .container {
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: #ffffff;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+        }
+        .btn-option {
+            background-color: #f3d2c1;
+            color: #4a2d1f;
+        }
+        .btn-option:hover {
+            background-color: #e8a87c;
+            color: white;
+            transform: translateY(-2px);
+        }
+        .btn-action {
+            background-color: #d12e6d;
+            color: white;
+        }
+        .btn-action:hover {
+            background-color: #a32454;
+            transform: translateY(-2px);
+        }
+        .btn-correct {
+            background-color: #10B981 !important; /* Green-500 */
+            color: white !important;
+        }
+        #feedback {
+            min-height: 50px;
+        }
+        #timer-display {
+            font-family: 'Sarabun', sans-serif;
+            font-weight: bold;
+            transition: color 0.5s ease;
+        }
+        #creator-info {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            font-size: 0.875rem;
+            color: #555;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="p-4 flex items-center justify-center min-h-screen">
+
+    <div id="quiz-container" class="container text-center flex flex-col items-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-pink-700 mb-6">มาลองฝึกการบอกเวลากัน!</h1>
+        <p class="text-lg text-gray-600 mb-8">คราวนี้มีเวลา 20 วินาทีในแต่ละข้อด้วยนะ! ลุยเลย!</p>
+        <button id="start-btn" class="btn btn-action">เริ่มกันเลย!</button>
+        
+        <div id="quiz-content" class="hidden w-full">
+            <div class="flex justify-around items-center mb-4 text-sm sm:text-lg md:text-xl">
+                <div class="font-bold text-gray-700">ถูก: <span id="correct-score" class="text-green-600">0</span></div>
+                <div id="timer-display" class="text-3xl font-bold text-green-600"></div>
+                <div class="font-bold text-gray-700">ผิด: <span id="incorrect-score" class="text-red-600">0</span></div>
+            </div>
+            <p id="question-text" class="text-xl md:text-2xl text-gray-800 mb-8 font-semibold"></p>
+            <div class="mb-8 p-4 bg-gray-100 rounded-xl">
+                <canvas id="clock-canvas" width="200" height="200" class="mx-auto border-4 border-gray-400 rounded-full bg-white"></canvas>
+            </div>
+            <div id="options-container" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6"></div>
+            <div id="feedback" class="text-base md:text-lg text-gray-700 p-4 rounded-lg"></div>
+            <button id="stop-btn" class="btn btn-action mt-6">พอแล้ววว</button>
+        </div>
+        
+        <div id="end-screen" class="hidden w-full">
+            <h2 class="text-3xl font-bold text-pink-700 mb-4">จบเกมแล้ว!</h2>
+            <p id="end-message" class="text-lg md:text-xl text-gray-700 mb-6"></p>
+            <button id="restart-btn" class="btn btn-action">เริ่มใหม่!</button>
+        </div>
+    </div>
+    <div id="creator-info">This app was created by Supreeya S.</div>
+
+    <script>
+        // Initialize Tone.js for sound effects
+        const correctSynth = new Tone.PolySynth().toDestination();
+        
+        // A more powerful and distorted "boom" sound
+        const distortion = new Tone.Distortion(0.9).toDestination();
+        const incorrectSynth = new Tone.MembraneSynth({
+            "octaves": 10,
+            "pitchDecay": 0.8
+        }).connect(distortion);
+        
+        const tickSynth = new Tone.Synth({
+            oscillator: { type: "square" },
+            envelope: {
+                attack: 0.001,
+                decay: 0.1,
+                sustain: 0,
+                release: 0.1
+            }
+        }).toDestination();
+        
+        // HTML Elements
+        const quizContainer = document.getElementById('quiz-container');
+        const startBtn = document.getElementById('start-btn');
+        const quizContent = document.getElementById('quiz-content');
+        const endScreen = document.getElementById('end-screen');
+        const questionText = document.getElementById('question-text');
+        const optionsContainer = document.getElementById('options-container');
+        const feedbackEl = document.getElementById('feedback');
+        const stopBtn = document.getElementById('stop-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const canvas = document.getElementById('clock-canvas');
+        const ctx = canvas.getContext('2d');
+        const timerDisplay = document.getElementById('timer-display');
+        const correctScoreEl = document.getElementById('correct-score');
+        const incorrectScoreEl = document.getElementById('incorrect-score');
+
+        // Game State Variables
+        let correctCount = 0;
+        let incorrectCount = 0;
+        let timerInterval = null;
+        let tickInterval = null;
+        const TIMER_DURATION = 20;
+        let timeLeft = TIMER_DURATION;
+        let currentQuestion = null;
+        let shuffledQuestions = [];
+        let questionIndex = 0;
+
+        // Question Pool (with only British English options)
+        const questionPool = [
+            { time: '3:15', question: 'What is the time?', options: ['a quarter past three', 'fifteen past three', 'twenty past three'], correct: 'a quarter past three' },
+            { time: '8:30', question: 'What is the time?', options: ['half past eight', 'twenty-five to nine', 'twenty-five past eight'], correct: 'half past eight' },
+            { time: '1:45', question: 'What is the time?', options: ['a quarter to two', 'a quarter past one', 'twenty to two'], correct: 'a quarter to two' },
+            { time: '10:05', question: 'What is the time?', options: ['five past ten', 'ten past five', 'ten to five'], correct: 'five past ten' },
+            { time: '6:50', question: 'What is the time?', options: ['ten to seven', 'twenty past six', 'five to seven'], correct: 'ten to seven' },
+            { time: '2:35', question: 'What is the time?', options: ['twenty-five to three', 'thirty minutes past two', 'half past three'], correct: 'twenty-five to three' },
+            { time: '7:55', question: 'What is the time?', options: ['five to eight', 'ten to eight', 'five past eight'], correct: 'five to eight' },
+        ];
+
+        // Sound Functions
+        const playCorrectSound = () => {
+            // Ding-Dong sound
+            correctSynth.triggerAttackRelease(["C5", "G4"], "8n");
+        };
+
+        const playIncorrectSound = () => {
+            // A more impactful "boom" sound with distortion
+            incorrectSynth.triggerAttackRelease("C1", "8n");
+        };
+
+        const playTick = () => {
+            tickSynth.triggerAttackRelease("C3", "32n");
+        };
+        
+        // --- Text-to-Speech (TTS) Functions ---
+        // Helper to convert base64 PCM to WAV Blob
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+        
+        function pcmToWav(pcmData, sampleRate) {
+            const buffer = new ArrayBuffer(44 + pcmData.length * 2);
+            const view = new DataView(buffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + pcmData.length * 2, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 1 * 2, true);
+            view.setUint16(32, 1 * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, pcmData.length * 2, true);
+
+            for (let i = 0; i < pcmData.length; i++) {
+                view.setInt16(44 + i * 2, pcmData[i], true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        async function speakText(textToSpeak) {
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{
+                    parts: [{ text: textToSpeak }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: "Puck" }
+                        },
+                        languageCode: "en-US" // Changed to English
+                    }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                return new Promise((resolve, reject) => {
+                    if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                        const sampleRate = parseInt(mimeType.match(/rate=(\d+)/)[1], 10);
+                        const pcmData = base64ToArrayBuffer(audioData);
+                        const pcm16 = new Int16Array(pcmData);
+                        const wavBlob = pcmToWav(pcm16, sampleRate);
+                        const audioUrl = URL.createObjectURL(wavBlob);
+                        
+                        const audio = new Audio(audioUrl);
+                        audio.onended = () => resolve();
+                        audio.onerror = (e) => reject(e);
+                        audio.play();
+                    } else {
+                        console.error('API did not return a valid audio file.');
+                        reject('Invalid audio data');
+                    }
+                });
+            } catch (error) {
+                console.error('Error with TTS API call:', error);
+                throw error;
+            }
+        }
+        // --- End of TTS Functions ---
+
+        // Utility Functions
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function drawClock(timeString) {
+            const [h, m] = timeString.split(':').map(Number);
+            const radius = canvas.width / 2;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.translate(radius, radius);
+
+            // Clock face
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 0.9, 0, 2 * Math.PI);
+            ctx.fillStyle = '#f9f9f9';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+
+            // Clock numbers
+            ctx.font = '16px Sarabun';
+            ctx.fillStyle = '#333';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            for (let i = 1; i <= 12; i++) {
+                const angle = (i * Math.PI / 6) - (Math.PI / 2);
+                const x = radius * 0.8 * Math.cos(angle);
+                const y = radius * 0.8 * Math.sin(angle);
+                ctx.fillText(i, x, y);
+            }
+
+            // Minute hand
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 4;
+            let minAngle = (m * Math.PI / 30) - (Math.PI / 2);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(radius * 0.65 * Math.cos(minAngle), radius * 0.65 * Math.sin(minAngle));
+            ctx.stroke();
+
+            // Hour hand
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 6;
+            let hrAngle = ((h % 12) * Math.PI / 6) + (m * Math.PI / 360) - (Math.PI / 2);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(radius * 0.5 * Math.cos(hrAngle), radius * 0.5 * Math.sin(hrAngle));
+            ctx.stroke();
+
+            // Center dot
+            ctx.beginPath();
+            ctx.arc(0, 0, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = '#333';
+            ctx.fill();
+
+            ctx.translate(-radius, -radius);
+        }
+
+        async function displayQuestion() {
+            if (questionIndex >= shuffledQuestions.length) {
+                stopGame();
+                return;
+            }
+
+            if (timerInterval) clearInterval(timerInterval);
+            if (tickInterval) clearInterval(tickInterval);
+            
+            timeLeft = TIMER_DURATION;
+            currentQuestion = shuffledQuestions[questionIndex];
+            questionText.textContent = currentQuestion.question;
+            await speakText("What is the time?"); // English question
+            drawClock(currentQuestion.time);
+            optionsContainer.innerHTML = '';
+            
+            const shuffledOptions = shuffle([...currentQuestion.options]);
+            shuffledOptions.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option;
+                button.classList.add('btn', 'btn-option');
+                button.addEventListener('click', () => checkAnswer(option, currentQuestion));
+                optionsContainer.appendChild(button);
+            });
+            feedbackEl.textContent = '';
+            
+            startTimer();
+        }
+
+        function startTimer() {
+            timerDisplay.textContent = `Time: ${timeLeft}`;
+            timerDisplay.classList.remove('text-red-600', 'text-yellow-600');
+            timerDisplay.classList.add('text-green-600');
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timerDisplay.textContent = `Time: ${timeLeft}`;
+                if (timeLeft <= 5) {
+                    timerDisplay.classList.remove('text-green-600');
+                    timerDisplay.classList.add('text-red-600');
+                } else if (timeLeft <= 10) {
+                    timerDisplay.classList.remove('text-green-600');
+                    timerDisplay.classList.add('text-yellow-600');
+                }
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    clearInterval(tickInterval);
+                    checkAnswer(null, currentQuestion); // Treat as incorrect answer
+                }
+            }, 1000);
+
+            tickInterval = setInterval(playTick, 1000);
+        }
+
+        async function checkAnswer(userAnswer, question) {
+            if (timerInterval) clearInterval(timerInterval);
+            if (tickInterval) clearInterval(tickInterval);
+
+            // Highlight the correct answer
+            const optionButtons = optionsContainer.querySelectorAll('.btn-option');
+            let isCorrect = (userAnswer === question.correct);
+
+            optionButtons.forEach(btn => {
+                btn.disabled = true; // Disable all buttons
+                if (btn.textContent === question.correct) {
+                    btn.classList.add('btn-correct');
+                }
+            });
+
+            if (isCorrect) {
+                feedbackEl.textContent = `เยี่ยมไปเลย! คุณตอบถูกครับ!`; // On-screen text in Thai
+                feedbackEl.classList.remove('bg-red-200');
+                feedbackEl.classList.add('bg-green-200');
+                correctCount++;
+                correctScoreEl.textContent = correctCount;
+                playCorrectSound();
+            } else {
+                playIncorrectSound();
+                let explanation = '';
+                if (userAnswer === null) {
+                    explanation = `โอ๊ยยย...หมดเวลาแล้วครับ!`; // On-screen text in Thai
+                } else {
+                    explanation = `โอ๊ยยย...ยังไม่ถูกนะครับ!`; // On-screen text in Thai
+                }
+                feedbackEl.textContent = explanation;
+                feedbackEl.classList.remove('bg-green-200');
+                feedbackEl.classList.add('bg-red-200');
+                incorrectCount++;
+                incorrectScoreEl.textContent = incorrectCount;
+            }
+
+            await speakText(question.correct); // Spoken correct time in English
+            questionIndex++; // Move to the next question
+            
+            // Delay before moving to the next question
+            setTimeout(() => {
+                optionButtons.forEach(btn => btn.classList.remove('btn-correct')); // Clear highlight
+                displayQuestion();
+            }, 2000); // 2-second delay
+        }
+
+        function startGame() {
+            if (Tone.context.state !== 'running') {
+                Tone.context.resume();
+            }
+
+            startBtn.classList.add('hidden');
+            quizContent.classList.remove('hidden');
+            endScreen.classList.add('hidden');
+            correctCount = 0;
+            incorrectCount = 0;
+            correctScoreEl.textContent = correctCount;
+            incorrectScoreEl.textContent = incorrectCount;
+            
+            shuffledQuestions = shuffle([...questionPool]);
+            questionIndex = 0;
+
+            displayQuestion();
+        }
+
+        function stopGame() {
+            if (timerInterval) clearInterval(timerInterval);
+            if (tickInterval) clearInterval(tickInterval);
+            quizContent.classList.add('hidden');
+            endScreen.classList.remove('hidden');
+            const endMessage = document.getElementById('end-message');
+            endMessage.textContent = `ขอบคุณที่มาร่วมสนุกนะครับ! คุณตอบถูก ${correctCount} ข้อ และตอบผิด ${incorrectCount} ข้อ!\nถ้าอยากเล่นต่อก็กดปุ่ม "เริ่มใหม่!" ได้เลยนะครับ`;
+        }
+
+        startBtn.addEventListener('click', startGame);
+        stopBtn.addEventListener('click', stopGame);
+        restartBtn.addEventListener('click', startGame);
+
+        // Initial state setup
+        drawClock('0:0');
+    </script>
+</body>
+</html>
